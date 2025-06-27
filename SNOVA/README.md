@@ -3,11 +3,6 @@
 ## Overview
 This repository contains an optimized implementation of the SNOVA post-quantum digital signature scheme targeting ARMv8 architectures with NEON SIMD acceleration.
 
-The implementation includes:
-- Rank-specific SIMD kernels for efficient matrix operations
-- Cycle-level benchmarking modules
-- Support for keypair generation, signing, and verification
-
 ## Build Instructions
 
 **Requirements**
