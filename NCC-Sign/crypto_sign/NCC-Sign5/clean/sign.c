@@ -8,6 +8,12 @@
 #include "fips202.h"
 #include "stdio.h"
 #include <stdlib.h>
+#ifdef BENCH_PROFILE
+#include "cpucycles.h"
+extern uint64_t g_attempt_cycles[];
+extern int g_attempt_idx;
+extern uint64_t g_setup_cycles;
+#endif
 #define NTT 1
 uint64_t mask_ar[4]={~(0UL)};
 
@@ -68,12 +74,19 @@ int crypto_sign_signature(uint8_t *sig,
 	poly mat, s1, y, z, t0, s2, w1, w0, h;
 	poly cp;
 	shake256incctx state;
+#ifdef BENCH_PROFILE
+	uint64_t _bench_att_start;
+	uint64_t _bench_setup_start;
+#endif
 
 	zeta = seedbuf;
 	tr = zeta + SEEDBYTES;
 	key = tr + SEEDBYTES;
 	mu = key + SEEDBYTES;
 	rho = mu + CRHBYTES;
+#ifdef BENCH_PROFILE
+	_bench_setup_start = cpucycles();
+#endif
 	unpack_sk(zeta, tr, key, &t0, &s1, &s2, sk);
 
 	shake256_inc_init(&state);
@@ -96,7 +109,14 @@ int crypto_sign_signature(uint8_t *sig,
 	ntt(t0.coeffs, t0.coeffs);
 #endif
 
+#ifdef BENCH_PROFILE
+	g_setup_cycles = cpucycles() - _bench_setup_start;
+#endif
+
 rej:
+#ifdef BENCH_PROFILE
+	_bench_att_start = cpucycles();
+#endif
 	poly_uniform_gamma1(&y, rho, nonce++);
 	z = y;
 
@@ -131,6 +151,9 @@ rej:
 	poly_add(&z, &z, &y);
   	poly_reduce(&z);
 	if (poly_chknorm(&z, GAMMA1 - BETA)){
+#ifdef BENCH_PROFILE
+		g_attempt_cycles[g_attempt_idx++] = cpucycles() - _bench_att_start;
+#endif
 		goto rej;
 	}
 #if NTT==0
@@ -146,6 +169,9 @@ rej:
 
 
 	if (poly_chknorm(&w0, GAMMA2 - BETA)){
+#ifdef BENCH_PROFILE
+		g_attempt_cycles[g_attempt_idx++] = cpucycles() - _bench_att_start;
+#endif
 		goto rej;
 	}
 
@@ -158,6 +184,9 @@ rej:
 #endif
   	poly_reduce(&h);
 	if (poly_chknorm(&h, GAMMA2)){
+#ifdef BENCH_PROFILE
+		g_attempt_cycles[g_attempt_idx++] = cpucycles() - _bench_att_start;
+#endif
 		goto rej;
 	}
 
@@ -166,9 +195,15 @@ rej:
 	n = poly_make_hint(&h, &w0, &w1);
 
 	if (n > OMEGA){
+#ifdef BENCH_PROFILE
+		g_attempt_cycles[g_attempt_idx++] = cpucycles() - _bench_att_start;
+#endif
 		goto rej;
 	}
 
+#ifdef BENCH_PROFILE
+	g_attempt_cycles[g_attempt_idx++] = cpucycles() - _bench_att_start;
+#endif
 	pack_sig(sig, sig, &z, &h);
 	*siglen = NCC_CRYPTO_BYTES;
 	return 0;

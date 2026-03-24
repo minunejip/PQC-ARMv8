@@ -11,15 +11,6 @@
 #include "sign.h"
 #include <stdio.h>
 
-#include <arm_neon.h>
-
-#define USE_NTT_NEON
-
-#ifdef USE_NTT_NEON   // <— 주석 처리로 on/off
-extern void ntt_neon_intrin(int32_t *out, const int32_t *in, const int32_t *zetas);
-extern void invntt_neon_intrin(int32_t *out, const int32_t *in, const int32_t *zetas_inv);
-#endif
-
 #ifdef DBENCH
 #include "cpucycles.h"
 extern const uint64_t timing_overhead;
@@ -879,373 +870,157 @@ int32_t zetas_inv[2303] = {
 7847463, 2844309, 7399034, 4659597, 3949336
 };
 #endif
+void ntt(int32_t * Out, int32_t * A){
+	int32_t zeta1;
+	int32_t t1;
+	int len, start, j, k=0;
 
+	if(Out!=A){
+		memcpy(Out,A,sizeof(int32_t)*N);
+	}
 
-void ntt(int32_t * Out, int32_t * A) {
-#if defined(USE_NTT_NEON) && defined(__aarch64__) && (NIMS_TRI_NTT_MODE==3)
-    // poly.c 안에 zetas[]가 '정의'되어 있으므로 여기서는 심볼을 인자로 넘기기만 하면 됨.
-    ntt_neon_intrin(Out, A, zetas);
-#else
-    // ===== 기존 C 레퍼런스 NTT 본문을 그대로 둡니다 =====
-    int32_t zeta1;
-    int32_t t1;
-    int len, start, j, k=0;
+	zeta1 = zetas[k++];
+	for(j = 0; j < N/2; j++)
+	{
+		t1 = montgomery_reduce((int64_t)zeta1 * Out[j + N/2]);
 
-    if(Out!=A){
-        memcpy(Out,A,sizeof(int32_t)*N);
-    }
+		Out[j + N/2] = Out[j] + Out[j + N/2] - t1;
+		Out[j      ] = Out[j] + t1;
+	}
 
-    zeta1 = zetas[k++];
-    for(j = 0; j < N/2; j++)
-    {
-        t1 = montgomery_reduce((int64_t)zeta1 * Out[j + N/2]);
-        Out[j + N/2] = Out[j] + Out[j + N/2] - t1;
-        Out[j      ] = Out[j] + t1;
-    }
+	for (len = N>>2; len > radix2_redlen_ntt; len >>= 1)
+	{ // radix-2
+		for (start = 0; start < N; start += (len << 1))
+		{
+			zeta1 = zetas[k++];
 
-    for (len = N>>2; len > radix2_redlen_ntt; len >>= 1)
-    { // radix-2
-        for (start = 0; start < N; start += (len << 1))
-        {
-            zeta1 = zetas[k++];
-            for (j = start; j < start + len; j++)
-            {
-                t1 = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
-                Out[j + len] = Out[j] - t1;
-                Out[j] = Out[j] + t1;
-            }
-        }
-    }
+			for (j = start; j < start + len; j++)
+			{
+				t1 = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
 
-    for(j = 0; j < N; ++j)
-        Out[j] = reduce32(Out[j]);
+				Out[j + len] = Out[j] - t1;
+				Out[j] = Out[j] + t1;
+			}
+		}
+	}
 
-    for (len = radix2_redlen_ntt; len >=  3 * radix3_len; len >>= 1)
-    { // radix-2
-        for (start = 0; start < N; start += (len << 1))
-        {
-            zeta1 = zetas[k++];
-            for (j = start; j < start + len; j++)
-            {
-                t1 = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
-                Out[j + len] = Out[j] - t1;
-                Out[j] = Out[j] + t1;
-            }
-        }
-    }
+  	for(j = 0; j < N; ++j)
+    	Out[j] = reduce32(Out[j]);
+
+	for (len = radix2_redlen_ntt; len >=  3 * radix3_len; len >>= 1)
+	{ // radix-2
+		for (start = 0; start < N; start += (len << 1))
+		{
+			zeta1 = zetas[k++];
+
+			for (j = start; j < start + len; j++)
+			{
+				t1 = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
+
+				Out[j + len] = Out[j] - t1;
+				Out[j] = Out[j] + t1;
+			}
+		}
+	}
+#if NIMS_TRI_NTT_MODE != 3
+	int32_t zeta2;
+	int32_t t2,t3,t4;
+
+	for (len = radix3_len; len >= 1; len = len / 3)
+	{ // radix-3
+		for (start = 0; start < N; start += 3 * len)
+		{
+			zeta1 = zetas[k++];
+			zeta2 = zetas[k++];
+
+			for(j = start; j < start + len; j++)
+			{
+				t1 = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
+				t2 = montgomery_reduce((int64_t)zeta2 * Out[j + 2*len]);
+				t3 = montgomery_reduce((int64_t)Wmont * t1); //w
+				t4 = montgomery_reduce((int64_t)W2mont * t2); //w^2
+
+				t1 = t1 + t2;
+				t3 = t3 + t4;
+
+				Out[j + 2*len] = Out[j] - (t1 + t3);
+				Out[j + len] = Out[j] + t3;
+				Out[j    ] = Out[j] + t1;
+			}
+		}
+	}
+#endif
+}
+void invntt_tomont(int32_t * Out, int32_t * A){
+	int32_t zeta1;
+	int32_t t1,t2;
+	int len, start, j, k=0;
+
+	if(Out!=A) memcpy(Out,A,sizeof(int32_t)*N);
 
 #if NIMS_TRI_NTT_MODE != 3
-    int32_t zeta2;
-    int32_t t2,t3,t4;
-    for (len = radix3_len; len >= 1; len = len / 3)
-    { // radix-3
-        for (start = 0; start < N; start += 3 * len)
-        {
-            zeta1 = zetas[k++];
-            zeta2 = zetas[k++];
-            for(j = start; j < start + len; j++)
-            {
-                t1 = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
-                t2 = montgomery_reduce((int64_t)zeta2 * Out[j + 2*len]);
-                t3 = montgomery_reduce((int64_t)Wmont * t1);   // w
-                t4 = montgomery_reduce((int64_t)W2mont * t2);  // w^2
-                t1 = t1 + t2;
-                t3 = t3 + t4;
-                Out[j + 2*len] = Out[j] - (t1 + t3);
-                Out[j + len]   = Out[j] + t3;
-                Out[j]         = Out[j] + t1;
-            }
-        }
-    }
+	int32_t zeta2;
+
+	for(len = 1; len <= radix3_len ; len = 3*len)
+	{//radix-3
+		for(start = 0; start < N; start += 3*len)
+		{
+			zeta1 = zetas_inv[k++];
+			zeta2 = zetas_inv[k++];
+			for(j = start; j < start + len; j++)
+			{
+				t1 = montgomery_reduce((int64_t)W2mont * Out[j + len]) + montgomery_reduce((int64_t)Wmont * Out[j + 2*len]);
+				t2 = Out[j + len] + Out[j + 2*len];
+
+				Out[j + 2*len] =  montgomery_reduce((int64_t)zeta2 * (Out[j] - (t1 + t2)));
+				Out[j + len] = montgomery_reduce((int64_t)zeta1 * (Out[j] + t1));
+				Out[j    ] = Out[j] + t2;
+			}
+		}
+	}
 #endif
-#endif
-}
+	for (len = 3 * radix3_len; len < radix2_redlen_invntt; len <<= 1)
+	{//radix-2
+		for (start = 0; start < N; start = j + len)
+		{
+			zeta1 = zetas_inv[k++];
+			for (j = start; j < start + len; ++j)
+			{
+				t1 = Out[j];
+				Out[j] = t1 + Out[j + len];
+				Out[j + len] = t1 - Out[j + len];
+				Out[j + len] = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
+			}
+		}
+	}
 
+  	for(j = 0; j < N; ++j)
+	    	Out[j] = reduce32(Out[j]);
 
+	for (len = radix2_redlen_invntt; len <= N>>2; len <<= 1)
+	{//radix-2
+		for (start = 0; start < N; start = j + len)
+		{
+			zeta1 = zetas_inv[k++];
+			for (j = start; j < start + len; ++j)
+			{
+				t1 = Out[j];
+				Out[j] = t1 + Out[j + len];
+				Out[j + len] = t1 - Out[j + len];
+				Out[j + len] = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
+			}
+		}
+	}
 
-// ---------------- reduce32 (벡터) ----------------
-static inline __attribute__((always_inline))
-int32x4_t reduce32_vec(int32x4_t x) {
-    const int32x4_t add = vdupq_n_s32(1 << 22);
-    const int32x4_t qv  = vdupq_n_s32(Q);
-    int32x4_t t  = vaddq_s32(x, add);
-    t            = vshrq_n_s32(t, 23);          // t = (x + 2^22) >> 23
-    int32x4_t tq = vmulq_s32(t, qv);            // low32(t * Q)
-    return vsubq_s32(x, tq);                    // x - t*Q
-}
+	zeta1 = zetas_inv[k];
+	for(int i = 0; i < N>>1; i++)
+	{
+		t1 = Out[i] + Out[i + N/2];
+		t2 = montgomery_reduce((int64_t)zeta1 * (Out[i] - Out[i + N/2]));
 
-// --------- Montgomery 4-lane (sqdmulh/shsub; ASM과 동일 시퀀스) ---------
-// 반환: t = montgomery_reduce(z * b) (lane 4개 병렬)
-static inline __attribute__((always_inline))
-int32x4_t montgomery_mul4_sqdmulh(int32x4_t b,
-                                  int32x4_t vZ,
-                                  int32x4_t vQ,
-                                  int32x4_t vQINV)
-{
-    int32x4_t high_ab   = vqdmulhq_s32(vZ, b);      // high(2*z*b)
-    int32x4_t b_qinv    = vmulq_s32(b,  vQINV);     // b*QINV (low32)
-    int32x4_t a_times   = vmulq_s32(vZ, b_qinv);    // z*(b*QINV)
-    int32x4_t high_corr = vqdmulhq_s32(a_times, vQ);// high(2*(...)*Q)
-    return vhsubq_s32(high_ab, high_corr);          // (high_ab - high_corr)/2
-}
-
-// ---------------- stage0 (특수 나비: b' = a + b - t) ----------------
-static inline void stage0_neon(int32_t *restrict Out,
-                               const int32_t *restrict zetas,
-                               int32x4_t vQ,
-                               int32x4_t vQINV)
-{
-    const int z  = zetas[0];
-    const int n2 = N >> 1;                 // 768
-    const int32x4_t vZ = vdupq_n_s32(z);
-
-    for (int j = 0; j < n2; j += 4) {
-        int32x4_t a = vld1q_s32(&Out[j]);
-        int32x4_t b = vld1q_s32(&Out[j + n2]);
-        int32x4_t t = montgomery_mul4_sqdmulh(b, vZ, vQ, vQINV);
-        int32x4_t a_plus_t = vaddq_s32(a, t);
-        int32x4_t a_plus_b = vaddq_s32(a, b);
-        int32x4_t b_new    = vsubq_s32(a_plus_b, t);  // a + b - t
-        vst1q_s32(&Out[j],      a_plus_t);
-        vst1q_s32(&Out[j + n2], b_new);
-    }
-}
-
-// -------- radix-2 상단: len = N/4 down to > RAD2_REDLEN_C --------
-static inline void radix2_upper_neon(int32_t *restrict Out,
-                                     const int32_t *restrict zetas,
-                                     int *pk,
-                                     int32x4_t vQ,
-                                     int32x4_t vQINV)
-{
-    for (int len = N >> 2; len > radix2_redlen_ntt; len >>= 1) {
-        for (int start = 0; start < N; start += (len << 1)) {
-            const int z = zetas[(*pk)++];
-            const int32x4_t vZ = vdupq_n_s32(z);
-
-            int j = start, j_end = start + len;
-            for (; j + 4 <= j_end; j += 4) {
-                int32x4_t a = vld1q_s32(&Out[j]);
-                int32x4_t b = vld1q_s32(&Out[j + len]);
-                int32x4_t t = montgomery_mul4_sqdmulh(b, vZ, vQ, vQINV);
-                vst1q_s32(&Out[j + len], vsubq_s32(a, t)); // b' = a - t
-                vst1q_s32(&Out[j],       vaddq_s32(a, t)); // a' = a + t
-            }
-            // 스칼라 테일(최대 3)
-            for (; j < j_end; ++j) {
-                int32_t a = Out[j];
-                int32_t b = Out[j + len];
-                int32_t t = montgomery_reduce((int64_t)z * (int64_t)b);
-                Out[j + len] = a - t;
-                Out[j]       = a + t;
-            }
-        }
-    }
-}
-
-// -------- radix-2 하단: len = RAD2_REDLEN_C ... >= 3*RAD3_LEN_C --------
-static inline void radix2_lower_neon(int32_t *restrict Out,
-                                     const int32_t *restrict zetas,
-                                     int *pk,
-                                     int32x4_t vQ,
-                                     int32x4_t vQINV)
-{
-    for (int len = radix2_redlen_ntt; len >= 3 * radix3_len; len >>= 1) {
-        for (int start = 0; start < N; start += (len << 1)) {
-            const int z = zetas[(*pk)++];
-            const int32x4_t vZ = vdupq_n_s32(z);
-
-            int j = start, j_end = start + len;
-            for (; j + 4 <= j_end; j += 4) {
-                int32x4_t a = vld1q_s32(&Out[j]);
-                int32x4_t b = vld1q_s32(&Out[j + len]);
-                int32x4_t t = montgomery_mul4_sqdmulh(b, vZ, vQ, vQINV);
-                vst1q_s32(&Out[j + len], vsubq_s32(a, t));
-                vst1q_s32(&Out[j],       vaddq_s32(a, t));
-            }
-            for (; j < j_end; ++j) {
-                int32_t a = Out[j];
-                int32_t b = Out[j + len];
-                int32_t t = montgomery_reduce((int64_t)z * (int64_t)b);
-                Out[j + len] = a - t;
-                Out[j]       = a + t;
-            }
-        }
-    }
-}
-
-// ---------------- public entry ----------------
-void ntt_neon_intrin(int32_t *out,
-                     const int32_t *in,
-                     const int32_t *zetas)
-{
-    if (out != in) memcpy(out, in, sizeof(int32_t)*N);
-
-    // vQ/vQINV는 함수 수명 전체에서 재사용(호이스트)
-    const int32x4_t vQ    = vdupq_n_s32(Q);
-    const int32x4_t vQINV = vdupq_n_s32(QINV);
-
-    stage0_neon(out, zetas, vQ, vQINV);
-
-    int k = 1; // zetas[0] 소비
-    radix2_upper_neon(out, zetas, &k, vQ, vQINV);
-
-    // 중간 reduce32 (벡터 1패스)
-    for (int i = 0; i < N; i += 4) {
-        int32x4_t x = vld1q_s32(&out[i]);
-        x = reduce32_vec(x);
-        vst1q_s32(&out[i], x);
-    }
-
-    radix2_lower_neon(out, zetas, &k, vQ, vQINV);
-    // (mode 3은 radix-3 없음)
-}
-static inline __attribute__((always_inline))
-void inv_bfly4_store(int32_t *restrict a_ptr, int32_t *restrict b_ptr,
-                     int32x4_t vZinv, int32x4_t vQ, int32x4_t vQINV)
-{
-    int32x4_t a = vld1q_s32(a_ptr);
-    int32x4_t b = vld1q_s32(b_ptr);
-    int32x4_t sum  = vaddq_s32(a, b);
-    int32x4_t diff = vsubq_s32(a, b);
-    int32x4_t t    = montgomery_mul4_sqdmulh(diff, vZinv, vQ, vQINV);
-    vst1q_s32(a_ptr, sum);
-    vst1q_s32(b_ptr, t);
-}
-
-// ---------------- inverse NTT (Mode 3, radix-2 only) ----------------
-void invntt_neon_intrin(int32_t *restrict out,
-                        const int32_t *restrict in,
-                        const int32_t *restrict zetas_inv)
-{
-    // Mode-3 전용: radix-3 없음
-    if (out != in) memcpy(out, in, sizeof(int32_t)*N);
-
-    const int32x4_t vQ    = vdupq_n_s32(Q);
-    const int32x4_t vQINV = vdupq_n_s32(QINV);
-
-    int k = 0;
-
-    // (1) radix-2 하단: len = 3*radix3_len; len < radix2_redlen_invntt; len <<= 1
-    //   * C 레퍼런스와 동일하게 '<' (<= 아님)
-    for (int len = 3 * radix3_len; len < radix2_redlen_invntt; len <<= 1) {
-        for (int start = 0; start < N; start += (len << 1)) {
-            int32x4_t vZinv = vdupq_n_s32(zetas_inv[k++]);
-
-            int j = start, j_end = start + len;
-            for (; j + 4 <= j_end; j += 4)
-                inv_bfly4_store(out + j, out + j + len, vZinv, vQ, vQINV);
-
-            // 스칼라 테일
-            for (; j < j_end; ++j) {
-                int32_t a = out[j], b = out[j + len];
-                out[j]       = a + b;
-                out[j + len] = montgomery_reduce((int64_t)zetas_inv[k-1] * (a - b));
-            }
-        }
-    }
-
-    // (2) 중간 reduce32 (C와 동일 타이밍)
-    for (int i = 0; i < N; i += 4) {
-        int32x4_t x = vld1q_s32(out + i);
-        x = reduce32_vec(x);
-        vst1q_s32(out + i, x);
-    }
-
-    // (3) radix-2 상단: len = radix2_redlen_invntt; len <= N/4; len <<= 1
-    //   * 시작을 (radix2_redlen_invntt << 1)이 아니라 'radix2_redlen_invntt'로!
-    for (int len = radix2_redlen_invntt; len <= (N >> 2); len <<= 1) {
-        for (int start = 0; start < N; start += (len << 1)) {
-            int32x4_t vZinv = vdupq_n_s32(zetas_inv[k++]);
-
-            int j = start, j_end = start + len;
-            for (; j + 4 <= j_end; j += 4)
-                inv_bfly4_store(out + j, out + j + len, vZinv, vQ, vQINV);
-
-            for (; j < j_end; ++j) {
-                int32_t a = out[j], b = out[j + len];
-                out[j]       = a + b;
-                out[j + len] = montgomery_reduce((int64_t)zetas_inv[k-1] * (a - b));
-            }
-        }
-    }
-
-    // (4) 최종 스테이지: z = zetas_inv[k] (증가 X), F1/F2 스케일
-    {
-        const int n2 = N >> 1;
-        int32x4_t vF1 = vdupq_n_s32(F1);
-        int32x4_t vF2 = vdupq_n_s32(F2);
-        int32x4_t vZ0 = vdupq_n_s32(zetas_inv[k]);  // k++ 아님 (참조와 동일)
-
-        for (int j = 0; j < n2; j += 4) {
-            int32x4_t a = vld1q_s32(out + j);
-            int32x4_t b = vld1q_s32(out + j + n2);
-            int32x4_t sum   = vaddq_s32(a, b);             // t1
-            int32x4_t diff  = vsubq_s32(a, b);             // (a-b)
-            int32x4_t t     = montgomery_mul4_sqdmulh(diff, vZ0, vQ, vQINV); // t2
-
-            // C: Out[i] = mont( F1 * (t1 - t2) )
-            int32x4_t sum_minus_t = vsubq_s32(sum, t);
-            int32x4_t a_new = montgomery_mul4_sqdmulh(sum_minus_t, vF1, vQ, vQINV);
-
-            // C: Out[i+N/2] = mont( F2 * t2 )
-            int32x4_t b_new = montgomery_mul4_sqdmulh(t, vF2, vQ, vQINV);
-
-            vst1q_s32(out + j,       a_new);
-            vst1q_s32(out + j + n2,  b_new);
-        }
-    }
-}
-
-void invntt_tomont(int32_t *Out, int32_t *A) {
-#if defined(USE_NTT_NEON) && defined(__aarch64__) && (NIMS_TRI_NTT_MODE==3)
-    // poly.c 안에 zetas_inv[]가 ‘정의’되어 있으므로 여기서는 포인터만 넘기면 됩니다.
-    invntt_neon_intrin(Out, A, zetas_inv);
-#else
-    // ===== 기존 C 레퍼런스 INVNTT 본문을 그대로 둡니다 =====
-    int32_t zeta1;
-    int32_t t1,t2;
-    int len, start, j, k=0;
-
-    if(Out!=A) memcpy(Out,A,sizeof(int32_t)*N);
-
-    /* (sign3는 radix-3 역단 없음) */
-
-    for (len = 3 * radix3_len; len < radix2_redlen_invntt; len <<= 1) {
-        for (start = 0; start < N; start = j + len) {
-            zeta1 = zetas_inv[k++];
-            for (j = start; j < start + len; ++j) {
-                t1 = Out[j];
-                Out[j] = t1 + Out[j + len];
-                Out[j + len] = t1 - Out[j + len];
-                Out[j + len] = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
-            }
-        }
-    }
-
-    for(j = 0; j < N; ++j)
-        Out[j] = reduce32(Out[j]);
-
-    for (len = radix2_redlen_invntt; len <= N>>2; len <<= 1) {
-        for (start = 0; start < N; start = j + len) {
-            zeta1 = zetas_inv[k++];
-            for (j = start; j < start + len; ++j) {
-                t1 = Out[j];
-                Out[j] = t1 + Out[j + len];
-                Out[j + len] = t1 - Out[j + len];
-                Out[j + len] = montgomery_reduce((int64_t)zeta1 * Out[j + len]);
-            }
-        }
-    }
-
-    zeta1 = zetas_inv[k];
-    for (int i = 0; i < N>>1; i++) {
-        t1 = Out[i] + Out[i + N/2];
-        t2 = montgomery_reduce((int64_t)zeta1 * (Out[i] - Out[i + N/2]));
-        Out[i]         = montgomery_reduce((int64_t)F1 * (t1 - t2));
-        Out[i + N/2]   = montgomery_reduce((int64_t)F2 * t2);
-    }
-#endif
+		Out[i] = montgomery_reduce((int64_t)F1 * (t1 - t2));
+		Out[i + N/2] = montgomery_reduce((int64_t)F2 * t2);
+	}
 }
 
 void pointwise_mul(int32_t* C, int32_t* A, int32_t* B){

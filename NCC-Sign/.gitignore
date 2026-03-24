@@ -1,0 +1,25 @@
+# Build artifacts
+*.o
+*.d
+
+# Compiled binaries
+KpqC_bench
+KpqC_test
+microbench
+dudect_test
+
+# sign_bench compiled binaries
+crypto_sign/sign_bench/dudect_Sign*
+crypto_sign/sign_bench/profile_Sign*
+crypto_sign/sign_bench/robust_Sign*
+crypto_sign/sign_bench/ntt_compare_*
+crypto_sign/sign_bench/ntt_debug_*
+crypto_sign/sign_bench/rej_test_*
+
+# Benchmark outputs
+*.csv
+*.txt
+*.output
+
+# macOS
+.DS_Store

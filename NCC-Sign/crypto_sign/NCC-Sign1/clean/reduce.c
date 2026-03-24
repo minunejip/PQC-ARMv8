@@ -2,7 +2,6 @@
 #include "params.h"
 #include "reduce.h"
 
-
 #if NIMS_MODE == 1
 #define MONT 83081 // 2^32 % Q
 #define QINV 1554761515 // -q^(-1) mod 2^32
@@ -19,20 +18,20 @@
 #define R2 3645001 // 2^64 % Q
 
 
-// #elif NIMS_TRI_NTT_MODE == 1
-// #define MONT 1781889 // 2^32 % Q
-// #define QINV 2245397889 // q^(-1) mod 2^32
-// #define R2 2742207 // 2^64 % Q
+#elif NIMS_TRI_NTT_MODE == 1
+#define MONT 1781889 // 2^32 % Q
+#define QINV 2245397889 // q^(-1) mod 2^32
+#define R2 2742207 // 2^64 % Q
 
-// #elif NIMS_TRI_NTT_MODE == 3
-// #define MONT 3940353 // 2^32 % Q
-// #define QINV 2080628225 // q^(-1) mod 2^32
-// #define R2 1946999 // 2^64 % Q
+#elif NIMS_TRI_NTT_MODE == 3
+#define MONT 3940353 // 2^32 % Q
+#define QINV 2080628225 // q^(-1) mod 2^32
+#define R2 1946999 // 2^64 % Q
 
-// #elif NIMS_TRI_NTT_MODE == 5
-// #define MONT 15873 // 2^32 % Q
-// #define QINV 260030465 // q^(-1) mod 2^32
-// #define R2 8207332 // 2^64 % Q
+#elif NIMS_TRI_NTT_MODE == 5
+#define MONT 15873 // 2^32 % Q
+#define QINV 260030465 // q^(-1) mod 2^32
+#define R2 8207332 // 2^64 % Q
 
 #endif
 

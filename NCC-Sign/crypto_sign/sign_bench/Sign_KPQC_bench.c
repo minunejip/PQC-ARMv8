@@ -5,7 +5,7 @@
 #include "cpucycles.h"
 #include "randombytes.h"
 
-#define TEST_LOOP 1000
+#define TEST_LOOP 10000
 #define MLEN 24
 
 int PQC_bench(void)
@@ -38,7 +38,7 @@ int PQC_bench(void)
     printf("CRYPTO_BYTES: %d\n", CRYPTO_BYTES);
     printf("Number of loop: %d \n", TEST_LOOP);
     printf("KeyGen ////////////////////////////////////////////// \n");
-    
+
     kcycles=0;
     for (int i = 0; i < TEST_LOOP; i++)
     {
@@ -72,10 +72,10 @@ int PQC_bench(void)
         cycles2 = cpucycles();
         kcycles += cycles2 - cycles1;
     }
-    
+
     printf("  Verify runs in ................. %8lld cycles", kcycles / TEST_LOOP);
     printf("\n");
-    
+
     printf("==================================================== \n");
 
     return 0;
